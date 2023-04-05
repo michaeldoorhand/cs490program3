@@ -4,81 +4,113 @@
 (require data/monad)
 (require data/maybe)
 
-(define (blah z)
-  (display "blah called"))
-
+;My stack is represented by a list where the first
+;element is the bottom of the stack and the last item is the top.
+;push item onto stack
 (define (push cmd stack)
   (append stack (list cmd)))
 
+;pop item off of stack
 (define (pop stack)
   (drop-right stack 1))
 
-(define (show stack)
-  (for-each (lambda (x) (printf "~a " (from-just #f x))) stack)stack)
+;Operator functions, each one checks for enough operands
+;if it doesn't have enough return a failure with the error message and stack
+;else return the result of the operation in a success
+(define (safe-add stack)
+  (if (equal? (length stack) 1) (failure (list "ERROR: Not enough operands, " stack))
+  (let ([x (last stack)]
+        [y (last (pop stack))])
+        (success (+ x y)))))
 
+(define (safe-subtract stack)
+  (if (equal? (length stack) 1) (failure (list "ERROR: Not enough operands, " stack))
+  (let ([x (last stack)]
+        [y (last (pop stack))])
+        (success (- y x)))))
+
+(define (safe-multiply stack)
+  (if (equal? (length stack) 1) (failure (list "ERROR: Not enough operands, " stack))
+  (let ([x (last stack)]
+        [y (last (pop stack))])
+        (success (* x y)))))
+
+;Checks for division by 0 as well as enough operands
+(define (safe-div stack)
+  (if (<= (length stack) 1) (failure (list "ERROR: not enough operands, " stack))
+  (let ([numerator (last (pop stack))]
+        [denominator (last stack)])
+    (cond
+      [(equal? denominator 0) (failure (list "ERROR: division by 0, " stack))]
+      [else (success (/ numerator denominator))]))))
+
+;Prints the current stack
+(define (show stack)
+  (display stack)
+  (display "\n") stack)
+
+;Prints the item at the top of the stack
 (define (top stack)
   (display (last stack))
+  (display "\n")
   stack)
 
+;Prints the size of the stack
 (define (size stack)
   (define (iter stack count)
-    (if (empty? stack) (display count)
+    (if (empty? stack) (display (string-append (number->string count) "\n"))
     (let ([item (first stack)])
       (cond
         [(number? item) (iter (rest stack) (+ count 1))]
         [else (iter (rest stack) count)]))))
   (iter stack 0) stack)
 
+;Duplicate the top-most item on the stack
 (define (duplicate stack)
   (push (last stack) stack))
 
-(define (safe-add stack)
-  (let ([x (from-just #f (last stack))]
-        [y (from-just #f (last (pop stack)))])
-        (push (just (+ x y)) (pop (pop stack)))))
-        
-(define (safe-div stack)
-  (if (equal? (length stack) 1) (end "ERROR: Not enough operands, " stack)
-  (let ([numerator (from-just   #f (last stack))]
-        [denominator (from-just #f (last (pop stack)))])
-   (if (= denominator 0)
-     (end "ERROR: division by 0 " stack)
-     (push (just (/ numerator denominator)) (pop (pop stack))) ))))
-
-;(define (safe-div stack)
- ; (do [numerator <- (last stack)]
-     ; [denominator <- (last (pop stack))]
-  ;   (display (+ numerator 7)) stack))
-    
-  
-(define (end message stack)
-  (display message)
-  (show stack)
+;Exits the program and prints the error and the current stack
+(define (end x)
+  (display (first (from-failure #f x)))
+  (show (second (from-failure #f x)))
   (exit 0))
 
+;Checks if the operation was a failure, ends the function if so
+;else pops the two operands from the stack and pushes the
+;result of the operation onto the stack
+(define (stack-bind f s)
+  (if (failure? (f s))
+      (end (f s))
+      (push (from-success #f (f s)) (pop(pop s)))))
+
+;Matches user input to the corresponding operation
+;Fancy regex string is used to match digits from the user input
 (define (get-input x stack)
   (cond
-    [(equal? x "ADD")  (safe-add stack)]
-    [(equal? x "SUB")  (blah x)]
-    [(equal? x "MUL")  (blah x)]
-    [(equal? x "DIV")  (safe-div stack)]
+    [(equal? x "ADD")  (stack-bind safe-add stack)]
+    [(equal? x "SUB")  (stack-bind safe-subtract stack)]
+    [(equal? x "MUL")  (stack-bind safe-multiply stack)]
+    [(equal? x "DIV")  (stack-bind safe-div stack)]
     [(equal? x "CLR")  '()]
     [(equal? x "SHOW") (show stack)]
     [(equal? x "TOP")  (top stack)]
     [(equal? x "SIZ")  (size stack)]
     [(equal? x "DUP")  (duplicate stack)]
-    [(equal? x "END")  (end "Program terminated, " stack)]
-    [(regexp-match #px"[+-]?\\d+(\\.\\d+)?" x) (push (just (string->number x)) stack)]
-    [else (end "Unknown command, " stack)]))
+    [(equal? x "END")  (end (failure (list "Program terminated, " stack)))]
+    [(regexp-match #px"[+-]?\\d+(\\.\\d+)?" x) (push (string->number x) stack)]
+    [else (end (failure (list "Unknown command, " stack)))]))
 
+;Handles the user inputting multiple numbers or commands on the same line
 (define (handle-input input stack)
   (if (equal? (length input) 1)
       (get-input (first input) stack)
       (handle-input (rest input) (get-input (first input) stack))))
-        
+
+;Reads in user input continuously
 (define (stack-loop stack)
   (for ((_ (in-naturals)))
     (define l (read-line))
       (stack-loop (handle-input (string-split l) stack))))
 
+;Starts the program with an empty stack
 (stack-loop '())
